@@ -156,7 +156,7 @@ docker compose ps
 |---------|-----|---------------|
 | Prometheus | http://localhost:9090 | None |
 | Node Exporter | http://localhost:9100/metrics | None |
-| Grafana | http://localhost:3000 | admin / admin |
+| Grafana | http://localhost:3030 | admin / admin |
 
 ---
 
@@ -187,7 +187,7 @@ count({__name__=~".+"})
 
 ## Adding Grafana Data Source
 
-1. Login to Grafana (http://localhost:3000)
+1. Login to Grafana (http://localhost:3030)
 2. Click **Configuration** → **Data Sources**
 3. Click **Add data source**
 4. Select **Prometheus**
@@ -367,7 +367,7 @@ http://localhost:9090/targets # Targets status
 http://localhost:9100/metrics # Raw metrics
 
 # Grafana
-http://localhost:3000         # Dashboard (admin/admin)
+http://localhost:3030         # Dashboard (admin/admin)
 
 # Alertmanager
 http://localhost:9093         # Alerts UI
