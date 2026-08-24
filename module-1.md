@@ -94,7 +94,7 @@ services:
     image: grafana/grafana:latest
     container_name: grafana
     ports:
-      - "3000:3000"
+      - "3030:3000"
     volumes:
       - grafana_data:/var/lib/grafana
     environment:
