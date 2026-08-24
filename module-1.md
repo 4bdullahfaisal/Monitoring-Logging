@@ -396,8 +396,3 @@ http://localhost:9093         # Alerts UI
 > "Prometheus Query Language — used to query and aggregate time series data in Prometheus."
 
 ---
-
-
----
-
-**End of Prometheus & Grafana Basics**
