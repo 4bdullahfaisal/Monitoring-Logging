@@ -34,12 +34,14 @@ Grafana is an open-source analytics and visualization platform.
 
 | Component | What it does |
 |-----------|--------------|
-| **Prometheus Server** | Collects and stores metrics |
+| **Prometheus** - Metrics collection and alert rules |
 | **Exporters** | Expose metrics from applications/services |
 | **Alertmanager** | Handles alerts (email, Slack, etc.) |
 | **Node Exporter** | Exports system metrics (CPU, memory, disk) |
 | **Pushgateway** | For short-lived jobs |
 | **Grafana** | Visualizes metrics |
+| **Loki** - Log aggregation  |
+| **Promtail** - Log collection from system and Docker |
 
 ---
 
@@ -56,9 +58,25 @@ Grafana is an open-source analytics and visualization platform.
 
 ---
 
-## Installing Prometheus (Docker)
+## Project Structure
 
-### docker-compose.yml
+```
+monitoring-stack/
+├── docker-compose.yml
+├── prometheus/
+│   └── prometheus.yml
+├── alertmanager/
+│   └── alertmanager.yml
+├── loki/
+│   └── loki-config.yml
+├── promtail/
+│   └── promtail-config.yml
+└── alerts.yml
+```
+
+---
+
+## File 1: `docker-compose.yml`
 
 ```yaml
 version: '3.8'
@@ -70,11 +88,28 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./alerts.yml:/etc/prometheus/alerts.yml
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
+    networks:
+      - monitoring
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    networks:
+      - monitoring
 
   node-exporter:
     image: prom/node-exporter:latest
@@ -89,30 +124,75 @@ services:
       - '--path.procfs=/host/proc'
       - '--path.sysfs=/host/sys'
       - '--path.rootfs=/rootfs'
+    networks:
+      - monitoring
 
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
     ports:
-      - "3030:3000"
+      - "3001:3000"  # Changed from 3000 to 3001
     volumes:
       - grafana_data:/var/lib/grafana
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
+    networks:
+      - monitoring
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/loki-config.yml
+      - loki_data:/loki
+    command:
+      - '-config.file=/etc/loki/loki-config.yml'
+    networks:
+      - monitoring
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/promtail-config.yml
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command:
+      - '-config.file=/etc/promtail/promtail-config.yml'
+    networks:
+      - monitoring
+    depends_on:
+      - loki
 
 volumes:
   prometheus_data:
+  alertmanager_data:
   grafana_data:
+  loki_data:
+
+networks:
+  monitoring:
+    driver: bridge
 ```
 
 ---
 
-## Prometheus Configuration (prometheus.yml)
+## File 2: `prometheus/prometheus.yml`
 
 ```yaml
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+rule_files:
+  - "/etc/prometheus/alerts.yml"
 
 scrape_configs:
   - job_name: 'prometheus'
@@ -126,98 +206,7 @@ scrape_configs:
 
 ---
 
-## Starting the Stack
-
-```bash
-# Create directory
-mkdir prometheus-grafana
-cd prometheus-grafana
-
-# Create prometheus.yml
-nano prometheus.yml
-# Paste the configuration above
-
-# Create docker-compose.yml
-nano docker-compose.yml
-# Paste the compose file above
-
-# Start all services
-docker compose up -d
-
-# Check status
-docker compose ps
-```
-
----
-
-## Access the Services
-
-| Service | URL | Default Login |
-|---------|-----|---------------|
-| Prometheus | http://localhost:9090 | None |
-| Node Exporter | http://localhost:9100/metrics | None |
-| Grafana | http://localhost:3030 | admin / admin |
-
----
-
-## Prometheus Query Examples
-
-```promql
-# CPU usage
-100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
-
-# Memory usage
-(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
-
-# Disk usage
-(1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) * 100
-
-# Network traffic in/out
-rate(node_network_receive_bytes_total[5m])
-rate(node_network_transmit_bytes_total[5m])
-
-# All targets
-up
-
-# All metrics
-count({__name__=~".+"})
-```
-
----
-
-## Adding Grafana Data Source
-
-1. Login to Grafana (http://localhost:3030)
-2. Click **Configuration** → **Data Sources**
-3. Click **Add data source**
-4. Select **Prometheus**
-5. Set URL: `http://prometheus:9090`
-6. Click **Save & Test**
-
----
-
-## Importing a Dashboard
-
-1. Click **+** → **Import**
-2. Enter Dashboard ID: `1860` (Node Exporter Full)
-3. Click **Load**
-4. Select Prometheus data source
-5. Click **Import**
-
-### Popular Grafana Dashboards
-
-| Dashboard | ID | Purpose |
-|-----------|-----|---------|
-| Node Exporter Full | 1860 | System metrics (CPU, memory, disk) |
-| Docker Monitoring | 193 | Container metrics |
-| Kubernetes Cluster | 6417 | K8s monitoring |
-| Prometheus 2.0 Stats | 3662 | Prometheus itself |
-
----
-
-## Alertmanager Configuration
-
-### alertmanager.yml
+## File 3: `alertmanager/alertmanager.yml`
 
 ```yaml
 route:
@@ -225,31 +214,31 @@ route:
   group_wait: 10s
   group_interval: 10s
   repeat_interval: 1h
-  receiver: 'email'
+  receiver: 'slack-notifications'
 
 receivers:
-  - name: 'email'
-    email_configs:
-      - to: 'youremail@example.com'
-        from: 'alert@example.com'
-        smarthost: 'smtp.gmail.com:587'
-        auth_username: 'your-email'
-        auth_password: 'your-password'
+  - name: 'slack-notifications'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/your_token'
+        channel: '#alerts'
+        username: 'Prometheus Alert'
+        icon_emoji: ':warning:'
+        text: |-
+          {{ range .Alerts }}
+            *Alert:* {{ .Annotations.summary }}
+            *Description:* {{ .Annotations.description }}
+            *Severity:* {{ .Labels.severity }}
+            *Instance:* {{ .Labels.instance }}
+            *Value:* {{ .Annotations.value }}
+          {{ end }}
+
+web:
+  external_url: 'http://localhost:9093'
 ```
 
-### prometheus.yml (add alerting)
+---
 
-```yaml
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets: ['alertmanager:9093']
-
-rule_files:
-  - "alerts.yml"
-```
-
-### alerts.yml
+## File 4: `alerts.yml`
 
 ```yaml
 groups:
@@ -261,7 +250,7 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "Instance {{ $labels.instance }} down"
+          summary: "🚨 Instance {{ $labels.instance }} down"
           description: "Instance {{ $labels.instance }} has been down for more than 1 minute."
 
       - alert: HighCPU
@@ -270,7 +259,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "High CPU usage on {{ $labels.instance }}"
+          summary: "⚠️ High CPU usage on {{ $labels.instance }}"
           description: "CPU usage is above 80% for 5 minutes."
 
       - alert: HighMemory
@@ -279,60 +268,219 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "High memory usage on {{ $labels.instance }}"
+          summary: "⚠️ High memory usage on {{ $labels.instance }}"
           description: "Memory usage is above 80% for 5 minutes."
 
-      - alert: DiskFull
-        expr: (1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) * 100 > 85
-        for: 5m
+      - alert: TestAlert
+        expr: 1 == 1
+        for: 0s
         labels:
-          severity: warning
+          severity: info
         annotations:
-          summary: "Disk is filling up on {{ $labels.instance }}"
-          description: "Disk usage is above 85% for 5 minutes."
+          summary: "✅ Test Alert - Slack is working!"
+          description: "This is a test alert to verify Slack integration is working correctly."
+          value: "Test notification sent at {{ now.Format \"15:04:05\" }}"
 ```
 
 ---
 
-## Exposing Your Own Application Metrics
+## File 5: `loki/loki-config.yml`
 
-### Python example with prometheus_client
+```yaml
+auth_enabled: false
 
-```python
-# app.py
-from prometheus_client import start_http_server, Counter, Histogram
-import random
-import time
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
 
-# Create metrics
-REQUESTS = Counter('http_requests_total', 'Total HTTP requests')
-REQUEST_DURATION = Histogram('http_request_duration_seconds', 'HTTP request duration')
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
 
-@REQUEST_DURATION.time()
-def handle_request():
-    REQUESTS.inc()
-    time.sleep(random.uniform(0.1, 0.5))
-    return "OK"
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: boltdb-shipper
+      object_store: filesystem
+      schema: v11
+      index:
+        prefix: index_
+        period: 24h
 
-if __name__ == '__main__':
-    start_http_server(8000)
-    print("Metrics server running on http://localhost:8000")
-    while True:
-        handle_request()
-        time.sleep(1)
+storage_config:
+  filesystem:
+    directory: /loki/chunks
+
+limits_config:
+  allow_structured_metadata: true
+
+table_manager:
+  retention_deletes_enabled: false
+  retention_period: 0s
+
+compactor:
+  working_directory: /loki/compactor
 ```
+
+---
+
+## File 6: `promtail/promtail-config.yml`
+
+```yaml
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: system
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: varlogs
+          __path__: /var/log/*log
+
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'container'
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'logstream'
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+```
+
+---
+
+## Deployment Steps
+
+### 1. Create all directories and files:
 
 ```bash
-pip install prometheus-client
-python app.py
+# Create project directory
+mkdir monitoring-stack
+cd monitoring-stack
+
+# Create directories
+mkdir -p prometheus alertmanager loki promtail
+
+# Create all files (copy content from above)
+nano docker-compose.yml
+nano prometheus/prometheus.yml
+nano alertmanager/alertmanager.yml
+nano loki/loki-config.yml
+nano promtail/promtail-config.yml
+nano alerts.yml
 ```
 
-Then add to prometheus.yml:
-```yaml
-- job_name: 'myapp'
-  static_configs:
-    - targets: ['host.docker.internal:8000']
+### 2. Start the stack:
+
+```bash
+docker compose up -d
 ```
+
+### 3. Check all services:
+
+```bash
+docker compose ps
+```
+
+**Expected output:**
+```
+NAME           STATUS
+prometheus     Up
+alertmanager   Up
+node-exporter  Up
+grafana        Up
+loki           Up
+promtail       Up
+```
+
+---
+
+## Access URLs
+
+| Service | URL |
+|---------|-----|
+| **Prometheus** | http://localhost:9090 |
+| **Alertmanager** | http://localhost:9093 |
+| **Node Exporter** | http://localhost:9100/metrics |
+| **Grafana** | http://localhost:3001 |
+| **Loki** | http://localhost:3100 |
+
+---
+
+## Grafana Login
+
+```
+URL: http://localhost:3001
+Username: admin
+Password: admin
+```
+
+---
+
+## 📊 Add Data Sources in Grafana
+
+### 1. Add Prometheus:
+1. Login to Grafana (http://localhost:3001)
+2. Gear icon → **Data Sources** → **Add data source**
+3. Select **Prometheus**
+4. URL: `http://prometheus:9090`
+5. Click **Save & Test**
+
+### 2. Add Loki:
+1. **Add data source**
+2. Select **Loki**
+3. URL: `http://loki:3100`
+4. Click **Save & Test**
+
+---
+
+## 📱 Test Slack Integration
+
+### The test alert will fire immediately:
+
+1. Go to **Alertmanager**: http://localhost:9093/#/alerts
+2. You should see the **"TestAlert"** in "Firing" state
+3. Check your Slack **#alerts** channel - you should receive:
+
+```
+Prometheus Alert
+:warning: 
+Alert: ✅ Test Alert - Slack is working!
+Description: This is a test alert to verify Slack integration is working correctly.
+Severity: info
+Instance: prometheus
+Value: Test notification sent at 14:32:15
+```
+---
+
+### Popular Grafana Dashboards
+
+| Dashboard | ID | Purpose |
+|-----------|-----|---------|
+| Node Exporter Full | 1860 | System metrics (CPU, memory, disk) |
+| Docker Monitoring | 193 | Container metrics |
+| Kubernetes Cluster | 6417 | K8s monitoring |
+| Prometheus 2.0 Stats | 3662 | Prometheus itself |
 
 ---
 
@@ -352,27 +500,22 @@ Then add to prometheus.yml:
 ## Quick Commands Summary
 
 ```bash
-# Docker Compose commands
-docker compose up -d          # Start all services
-docker compose down           # Stop and remove
-docker compose ps             # Check status
-docker compose logs prometheus # View logs
+# Check all containers are running
+docker compose ps
 
-# Prometheus
-http://localhost:9090         # Web UI
-http://localhost:9090/graph   # Query UI
-http://localhost:9090/targets # Targets status
+# Check Prometheus alerts
+curl http://localhost:9090/api/v1/alerts | jq '.data.alerts[] | {name: .labels.alertname, state: .state}'
 
-# Node Exporter
-http://localhost:9100/metrics # Raw metrics
+# Check Alertmanager alerts
+curl http://localhost:9093/api/v2/alerts | jq '.[] | {name: .labels.alertname, status: .status.state}'
 
-# Grafana
-http://localhost:3030         # Dashboard (admin/admin)
+# Check Loki is working
+curl http://localhost:3100/loki/api/v1/labels
 
-# Alertmanager
-http://localhost:9093         # Alerts UI
+# View Alertmanager logs
+docker logs alertmanager
+
 ```
-
 ---
 
 ## Quick Interview Answers
@@ -394,5 +537,7 @@ http://localhost:9093         # Alerts UI
 
 **Q: What is PromQL?**
 > "Prometheus Query Language — used to query and aggregate time series data in Prometheus."
+
+
 
 ---
