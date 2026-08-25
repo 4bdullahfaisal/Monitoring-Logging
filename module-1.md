@@ -34,14 +34,14 @@ Grafana is an open-source analytics and visualization platform.
 
 | Component | What it does |
 |-----------|--------------|
-| **Prometheus** - Metrics collection and alert rules |
+| **Prometheus** | Metrics collection and alert rules |
 | **Exporters** | Expose metrics from applications/services |
 | **Alertmanager** | Handles alerts (email, Slack, etc.) |
 | **Node Exporter** | Exports system metrics (CPU, memory, disk) |
 | **Pushgateway** | For short-lived jobs |
 | **Grafana** | Visualizes metrics |
-| **Loki** - Log aggregation  |
-| **Promtail** - Log collection from system and Docker |
+| **Loki** | Log aggregation  |
+| **Promtail** | Log collection from system and Docker |
 
 ---
 
