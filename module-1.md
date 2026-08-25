@@ -131,7 +131,7 @@ services:
     image: grafana/grafana:latest
     container_name: grafana
     ports:
-      - "3001:3000"  # Changed from 3000 to 3001
+      - "3001:3000"  
     volumes:
       - grafana_data:/var/lib/grafana
     environment:
