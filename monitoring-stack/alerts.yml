@@ -1,0 +1,11 @@
+groups:
+  - name: instance
+    rules:
+      - alert: TestAlert
+        expr: vector(1) == 1  # Fix: use vector()
+        for: 0s
+        labels:
+          severity: info
+        annotations:
+          summary: "✅ Test Alert - Slack is working!"
+          description: "This is a test alert to verify Slack integration."
